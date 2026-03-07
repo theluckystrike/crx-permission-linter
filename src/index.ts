@@ -1,5 +1,6 @@
 import fs from 'fs';
 import glob from 'fast-glob';
+import ts from 'typescript';
 
 export interface LinterResult {
   unused: string[];
@@ -15,7 +16,8 @@ export async function lintPermissions(dir: string): Promise<LinterResult> {
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
   const declared = [
     ...(manifest.permissions || []),
-    ...(manifest.optional_permissions || [])
+    ...(manifest.optional_permissions || []),
+    ...(manifest.host_permissions || [])
   ];
 
   if (declared.length === 0) {
@@ -29,15 +31,83 @@ export async function lintPermissions(dir: string): Promise<LinterResult> {
   });
 
   const used = new Set<string>();
+
   for (const file of sourceFiles) {
     const content = fs.readFileSync(file, 'utf-8');
-    declared.forEach(p => {
-      // Basic check for chrome.permission or browser.permission
-      const regex = new RegExp(`(chrome|browser)\\.${p}`, 'g');
-      if (regex.test(content)) {
-        used.add(p);
+    const sourceFile = ts.createSourceFile(file, content, ts.ScriptTarget.Latest, true);
+
+    const visit = (node: ts.Node) => {
+      // Direct access like chrome.tabs
+      if (ts.isPropertyAccessExpression(node)) {
+        if (ts.isIdentifier(node.expression) && (node.expression.text === 'chrome' || node.expression.text === 'browser')) {
+          const p = node.name.text;
+          if (declared.includes(p)) used.add(p);
+        }
       }
-    });
+
+      // Bracket access like chrome['tabs']
+      if (ts.isElementAccessExpression(node)) {
+        if (ts.isIdentifier(node.expression) && (node.expression.text === 'chrome' || node.expression.text === 'browser')) {
+          if (ts.isStringLiteral(node.argumentExpression)) {
+            const p = node.argumentExpression.text;
+            if (declared.includes(p)) used.add(p);
+          }
+        }
+      }
+
+      // Destructuring like const { tabs } = chrome;
+      if (ts.isVariableDeclaration(node) && node.initializer) {
+        let initializer = node.initializer;
+        while (ts.isParenthesizedExpression(initializer)) {
+          initializer = initializer.expression;
+        }
+
+        if (ts.isIdentifier(initializer) && (initializer.text === 'chrome' || initializer.text === 'browser')) {
+          if (ts.isObjectBindingPattern(node.name)) {
+            for (const element of node.name.elements) {
+              if (ts.isBindingElement(element)) {
+                // { tabs } or { tabs: myTabs }
+                const nameNode = element.propertyName || element.name;
+                if (ts.isIdentifier(nameNode)) {
+                  const p = nameNode.text;
+                  if (declared.includes(p)) used.add(p);
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Host permissions detection in strings
+      if (ts.isStringLiteral(node)) {
+        const text = node.text;
+        for (const p of declared) {
+          if (used.has(p)) continue;
+          if (p.includes('://') || p.includes('*') || p === '<all_urls>') {
+            if (p === '<all_urls>') continue;
+
+            const domainMatch = p.match(/:\/\/(\*\.)?([^/*]+)/);
+            if (domainMatch && domainMatch[2]) {
+              if (text.includes(domainMatch[2])) used.add(p);
+            } else {
+              const clean = p.replace(/[*<>]/g, '');
+              if (clean && clean.length > 3 && text.includes(clean)) used.add(p);
+            }
+          }
+        }
+      }
+
+      ts.forEachChild(node, visit);
+    };
+
+    visit(sourceFile);
+
+    // Heuristics for host permissions and <all_urls>
+    if (declared.includes('<all_urls>') && !used.has('<all_urls>')) {
+      if (content.includes('fetch') || content.includes('XMLHttpRequest') || content.includes('chrome.scripting')) {
+        used.add('<all_urls>');
+      }
+    }
   }
 
   return {
