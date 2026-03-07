@@ -1,6 +1,6 @@
 # crx-permission-linter
 
-Scans source code to find unused permissions declared in manifest.json.
+Scan source code to identify unused permissions declared in the manifest.json file.
 
 ## Installation
 
@@ -16,11 +16,11 @@ Point the tool at your extension directory.
 crx-permission-linter ./my-extension
 ```
 
-It reads manifest.json and scans all source files for `chrome.<permission>` calls to identify which permissions are unnecessary.
+The tool scans all source files for chrome permission calls and highlights any permissions that are unnecessary.
 
 ## Chrome Extension Guide
 
-For deeper learning about building extensions check out chrome-extension-guide.
+For deeper learning about building extensions, refer to the chrome-extension-guide.
 
 ## License
 
