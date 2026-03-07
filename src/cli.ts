@@ -22,7 +22,16 @@ async function main() {
       console.log(chalk.gray('\nCheck if you actually call chrome.' + result.unused[0] + ' anywhere in your code.'));
     }
 
-    console.log(chalk.cyan(`\nUsed permissions: ${result.used.join(', ') || 'none'}`));
+    console.log(chalk.cyan('\nUsed permissions:'));
+    if (result.used.length === 0) {
+      console.log(chalk.gray(' none'));
+    } else {
+      result.used.forEach(p => {
+        const locs = result.locations[p] || [];
+        const locString = locs.map(l => `${l.file}:${l.line}`).join(', ');
+        console.log(chalk.cyan(` - ${p} ${chalk.gray(`(used in ${locString})`)}`));
+      });
+    }
   } catch (err: any) {
     console.error(chalk.red(`Error: ${err.message}`));
     process.exit(1);
