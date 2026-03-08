@@ -2,37 +2,55 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-3178c6?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
 [![npm](https://img.shields.io/badge/npm-v1.0.0-cb3837?style=flat-square&logo=npm)](https://www.npmjs.com/package/@theluckystrike/crx-permission-linter)
-[![MIT License](https://img.shields.io/badge/License-MIT-3da639?style=flat-square)](LICENSE)
+[![License](https://img.shields.io/badge/License-MIT-3da639?style=flat-square)](LICENSE)
+[![Last Commit](https://img.shields.io/github/last-commit/theluckystrike/crx-permission-linter?style=flat-square)](https://github.com/theluckystrike/crx-permission-linter/commits/main)
 
-Lint Chrome extension manifests for over-broad or unnecessary permissions.
+Lint Chrome extension manifests for over-broad or unnecessary permissions. Keep your extension lean and secure by detecting permissions declared in `manifest.json` that aren't actually used in your code.
+
+## Why Use crx-permission-linter?
+
+Chrome extensions often accumulate unnecessary permissions over time:
+
+- Permissions copied from tutorials or boilerplates
+- APIs added during development but later removed
+- Host permissions that are overly broad
+
+Unnecessary permissions:
+- Increase user trust concerns during installation
+- May trigger additional review processes in the Chrome Web Store
+- Represent unnecessary attack surface
+
+`crx-permission-linter` analyzes your extension's source code to identify which permissions are actually used, helping you maintain a minimal permissions manifest.
 
 ## Installation
 
 ```bash
+# Install globally
 npm install -g @theluckystrike/crx-permission-linter
-```
 
-Or use npx without installing:
-
-```bash
+# Or use with npx (no installation required)
 npx @theluckystrike/crx-permission-linter ./my-extension
 ```
 
 ## CLI Usage
 
 ```bash
+# Lint a local extension directory
 crx-permission-linter ./path/to/extension
+
+# Or lint the current directory
+crx-permission-linter
 ```
 
-The tool scans all JavaScript and TypeScript source files in your extension directory, parses the `manifest.json`, and reports which declared permissions are actually used in your code.
+### Example Output
 
-**Example output:**
+**All permissions used:**
 
 ```
 ✔ All declared permissions appear to be used.
 ```
 
-Or when unused permissions are found:
+**Unused permissions detected:**
 
 ```
 ⚠ Found 2 potentially unused permissions:
@@ -41,23 +59,32 @@ Or when unused permissions are found:
 
 Check if you actually call chrome.alarms anywhere in your code.
 
-Used permissions: tabs, storage
+Used permissions:
+ - tabs (used in background.js:3, popup.js:12)
+ - storage (used in background.js:5, options.js:8)
 ```
 
-## API Usage
+## Programmatic API
 
-You can also use `crx-permission-linter` programmatically in your Node.js projects:
+You can also use `crx-permission-linter` as a Node.js library:
 
 ```typescript
 import { lintPermissions } from '@theluckystrike/crx-permission-linter';
 
 const result = await lintPermissions('./path/to/extension');
 
-console.log(result.used);   // ['tabs', 'storage']
-console.log(result.unused); // ['alarms', 'bookmarks']
+console.log(result.used);    // ['tabs', 'storage']
+console.log(result.unused);  // ['alarms', 'bookmarks']
+console.log(result.locations);
+// {
+//   tabs: [{ file: 'background.js', line: 3 }],
+//   storage: [{ file: 'background.js', line: 5 }]
+// }
 ```
 
-### `lintPermissions(dir: string): Promise<LinterResult>`
+### API Reference
+
+#### `lintPermissions(dir: string): Promise<LinterResult>`
 
 Scans a Chrome extension directory and returns which permissions are used vs unused.
 
@@ -65,30 +92,43 @@ Scans a Chrome extension directory and returns which permissions are used vs unu
 - `dir` - Path to the extension directory (must contain `manifest.json`)
 
 **Returns:** `Promise<LinterResult>`
+
 ```typescript
 interface LinterResult {
-  unused: string[];  // Permissions declared but not detected in code
-  used: string[];    // Permissions that appear to be used
+  unused: string[];                    // Permissions declared but not detected in code
+  used: string[];                      // Permissions that appear to be used
+  locations: Record<string, {         // Where each permission is used
+    file: string;
+    line: number;
+  }[]>;
+}
+
+interface UsageLocation {
+  file: string;
+  line: number;
 }
 ```
 
-## What Permissions It Checks
+## Rules & Checks
 
 The linter analyzes permissions from all three manifest locations:
 
-- `permissions` - Standard API permissions (e.g., `tabs`, `storage`, `alarms`)
-- `optional_permissions` - Optional API permissions
-- `host_permissions` - Host patterns (e.g., `https://*.google.com/*`, `<all_urls>`)
+| Manifest Field | Description | Examples |
+|----------------|-------------|----------|
+| `permissions` | Standard API permissions | `tabs`, `storage`, `alarms` |
+| `optional_permissions` | Optional API permissions | `contextMenus`, `topSites` |
+| `host_permissions` | Host patterns | `https://*.google.com/*`, `<all_urls>` |
 
 ### Detection Patterns
 
-The tool detects permission usage through:
+The tool detects permission usage through multiple patterns:
 
-1. **Direct access**: `chrome.tabs.query(...)`
+1. **Direct access**: `chrome.tabs.query({}, callback)`
 2. **Bracket notation**: `chrome['tabs'].create(...)`
 3. **Destructuring**: `const { tabs } = chrome;`
 4. **Renamed destructuring**: `const { storage: myStorage } = chrome;`
-5. **Host permissions**: URLs matching declared host patterns in fetch/XHR calls
+5. **Browser namespace**: `const { tabs } = browser;`
+6. **Host permissions in strings**: URLs matching declared host patterns
 
 ### Warnings Produced
 
@@ -98,6 +138,29 @@ The linter produces warnings for:
 - **Unused host permissions**: Host patterns declared but no matching URLs found in network calls
 - **Potentially unnecessary `<all_urls>`**: If `fetch`, `XMLHttpRequest`, or `chrome.scripting` is detected but domain-specific host permissions could be used instead
 
+## Project Structure
+
+```
+crx-permission-linter/
+├── src/
+│   ├── index.ts          # Core linter logic
+│   ├── cli.ts            # CLI entry point
+│   └── index.test.ts    # Test suite
+├── package.json
+├── tsconfig.json
+├── LICENSE
+└── README.md
+```
+
+## Requirements
+
+- Node.js 18+
+- TypeScript 5.9+
+
+## License
+
+MIT License - see [LICENSE](LICENSE) for details.
+
 ---
 
-MIT License - Built by [theluckystrike](https://github.com/theluckystrike) | [zovo.one](https://zovo.one)
+Built at [zovo.one](https://zovo.one) by [theluckystrike](https://github.com/theluckystrike)
